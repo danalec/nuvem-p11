@@ -1,0 +1,18 @@
+# Artefatos de build -----------------------------------------------------------
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# O shim nativo é gerado pelo Makefile a partir de shim/nuvemp11.c
+*.so
+shim/generated_functions.h
+
+# Scratch de análise local -----------------------------------------------------
+# Descompilação do binário oficial (saída de `kuna decompile-project`). É
+# material de terceiros revertido, então de propósito NÃO vai para o repositório
+# público. Regenerar exige o libserproidp11.so, disponível em /usr/lib ou no
+# pacote serproid.
+analysis/

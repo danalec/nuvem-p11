@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nuvem-p11"
+version = "2.1.6"
+description = "Cliente livre do SerproID: token em nuvem sobre PKCS#11 e utilitário de configuração"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+nuvem-p11 = "nuvem_p11.cli:main"
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[tool.setuptools]
+packages = ["nuvem_p11", "nuvem_p11.p11"]
+
+[tool.setuptools.package-data]
+nuvem_p11 = ["ca/*.pem", "ac/*.crt", "icon.png"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
