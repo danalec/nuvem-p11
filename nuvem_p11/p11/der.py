@@ -152,6 +152,8 @@ def parse_certificate(der: bytes) -> CertificateInfo:
     index = 0
     if tbs[0][0] == 0xA0:  # version [0] EXPLICIT
         index = 1
+    if len(tbs) <= index + 5:
+        raise DerError("tbsCertificate too short")
 
     serial_tag, _, serial, _ = tbs[index]
     if serial_tag != INTEGER:

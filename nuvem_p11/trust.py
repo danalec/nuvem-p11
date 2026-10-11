@@ -56,6 +56,9 @@ def build_context(
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.verify_mode = ssl.CERT_REQUIRED
     context.check_hostname = True
+    # SSL_OP_NO_SSLv3 is covered by the TLS 1.2 floor; the original also disables
+    # compression (SSL_OP_NO_COMPRESSION) explicitly.
+    context.options |= ssl.OP_NO_COMPRESSION
     for path in ca_paths(extra_ca):
         context.load_verify_locations(cafile=path)
 

@@ -263,7 +263,7 @@ class Token:
         except OSError:
             return found
         for name in entries:
-            if ".cer" not in name:
+            if not name.endswith(".cer"):
                 continue
             path = os.path.join(self.config.certificates_dir, name)
             try:
@@ -785,6 +785,8 @@ class Token:
                 else:
                     self._find_code = mapped
             elif attribute_type == k.CKA_ID:
+                if length != 8:
+                    return CKR_ATTRIBUTE_VALUE_INVALID
                 self._find_id = _read_ulong(buffer)
             elif attribute_type == k.CKA_ISSUER:
                 self._find_issuer = _read(buffer, length)
@@ -827,7 +829,7 @@ class Token:
             return self._handles_for(certificates, "subject", self._find_subject, both=True)
         if self._find_value is not None:
             return self._handles_for(certificates, "value", self._find_value, both=False)
-        if self._find_id:
+        if self._find_id is not None:
             if code == FIND_PRIVATE_KEY:
                 return [(self._find_id + k.KEY_HANDLE_FLAG) & 0xFFFFFFFF]
             return [self._find_id & 0xFFFFFFFF]
@@ -958,18 +960,19 @@ class Token:
             _write_ulong(pulSignatureLen, k.SIGNATURE_LENGTH)
             return CKR_FUNCTION_FAILED
 
-        data = _read(pData, ulDataLen)
         if ulDataLen > MAX_SIGNATURE_PAYLOAD:
             # A signing request carries a digest-sized payload; refuse an oversized one here
-            # rather than putting it on the wire.
+            # rather than reading it or putting it on the wire.
             _write_ulong(pulSignatureLen, k.SIGNATURE_LENGTH)
             return CKR_ARGUMENTS_BAD
+        data = _read(pData, ulDataLen)
         try:
             signature = self.client().sign(self.certificate_id, data, pss=self.pss)
         except SerproIDError as exc:
             _write_ulong(pulSignatureLen, k.SIGNATURE_LENGTH)
             return exc.ckr
-        except Exception:
+        except Exception as exc:
+            self.config.log(f"Erro inesperado em C_Sign: {exc!r}")
             _write_ulong(pulSignatureLen, k.SIGNATURE_LENGTH)
             return CKR_FUNCTION_FAILED
 

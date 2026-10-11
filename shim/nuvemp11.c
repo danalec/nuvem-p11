@@ -95,6 +95,21 @@ static void add_python_path(void)
     Py_XDECREF(item);
 }
 
+/*
+ * Leave the interpreter the way the caller expects. ``PyGILState_Release`` matches the
+ * ``Ensure`` above it; when *we* started CPython the GIL is still held afterwards, so a
+ * failure return that skipped ``PyEval_SaveThread`` would strand it and deadlock every
+ * later ctypes callback on any thread.
+ */
+static void leave_interpreter(PyGILState_STATE gil)
+{
+    PyGILState_Release(gil);
+    if (g_owns_interpreter) {
+        (void)PyEval_SaveThread();
+        g_owns_interpreter = 0;
+    }
+}
+
 static void bootstrap(void)
 {
     PyObject *cabi;
@@ -120,7 +135,7 @@ static void bootstrap(void)
     cabi = PyImport_ImportModule("nuvem_p11.p11.cabi");
     if (cabi == NULL) {
         PyErr_Print();
-        PyGILState_Release(gil);
+        leave_interpreter(gil);
         g_failed = 1;
         return;
     }
@@ -128,7 +143,7 @@ static void bootstrap(void)
     if (symbols == NULL) {
         PyErr_Print();
         Py_DECREF(cabi);
-        PyGILState_Release(gil);
+        leave_interpreter(gil);
         g_failed = 1;
         return;
     }
@@ -136,7 +151,7 @@ static void bootstrap(void)
         fprintf(stderr, "serproidp11: function_symbols() did not return a dict\n");
         Py_DECREF(symbols);
         Py_DECREF(cabi);
-        PyGILState_Release(gil);
+        leave_interpreter(gil);
         g_failed = 1;
         return;
     }
@@ -147,11 +162,18 @@ static void bootstrap(void)
 #define NUVEM_P11_ASSIGN(name)                                                             \
     do {                                                                                  \
         PyObject *value = PyDict_GetItemString(symbols, #name); /* borrowed */             \
-        if (value != NULL)                                                                 \
-            g_function_list.name =                                                        \
-                (__typeof__(g_function_list.name))(uintptr_t)PyLong_AsUnsignedLongLong(value); \
-        else                                                                               \
-            missing++;                                                                     \
+        unsigned long long fn;                                                            \
+        if (value == NULL) {                                                              \
+            missing++;                                                                    \
+            break;                                                                        \
+        }                                                                                 \
+        fn = PyLong_AsUnsignedLongLong(value);                                            \
+        if (PyErr_Occurred()) {                                                           \
+            PyErr_Clear();                                                                \
+            missing++;                                                                    \
+            break;                                                                        \
+        }                                                                                 \
+        g_function_list.name = (__typeof__(g_function_list.name))(uintptr_t)fn;            \
     } while (0);
 
     NUVEM_P11_FUNCTIONS(NUVEM_P11_ASSIGN)
@@ -159,20 +181,11 @@ static void bootstrap(void)
 
     Py_DECREF(symbols);
     Py_DECREF(cabi);
-    PyGILState_Release(gil);
+    leave_interpreter(gil);
 
     if (missing != 0) {
         g_failed = 1;
         return;
-    }
-    if (g_owns_interpreter) {
-        /*
-         * We started the interpreter, so the GIL is ours and the calling thread is about to
-         * return to C (NSS keeps the table and never calls back into us on this thread).
-         * Hand it back so the ctypes callbacks can take it from any thread.
-         */
-        (void)PyEval_SaveThread();
-        g_owns_interpreter = 0;
     }
 }
 

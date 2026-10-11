@@ -282,6 +282,22 @@ def test_private_key_search_by_id_returns_the_key_handle(p11):
     assert code == 0 and handles == [424242]
 
 
+def test_an_id_filter_of_zero_stays_a_filter(p11):
+    """``0`` is a real CKA_ID, not "no filter": it must not dump every handle."""
+    _, f = p11()
+    session = open_session(f)
+    code, handles = find_with(f, session, [(k.CKA_ID, (0).to_bytes(8, "little"))])
+    assert code == 0 and handles == [0]
+
+
+def test_an_id_filter_of_the_wrong_size_is_refused(p11):
+    """CKA_ID is a u64 here; reading a shorter buffer would touch caller memory past it."""
+    _, f = p11()
+    session = open_session(f)
+    code, handles = find_with(f, session, [(k.CKA_ID, b"\x01\x02\x03\x04")])
+    assert code == CKR_ATTRIBUTE_VALUE_INVALID and handles == []
+
+
 def test_search_by_class_only(p11):
     _, f = p11()
     session = open_session(f)

@@ -226,20 +226,22 @@ class SerproIDClient:
     def _post_body(
         self, certificate_id: int, desafio: str, data_len: int, pss: PssParams | None
     ) -> tuple[str, int]:
-        parts = [
-            f'"certificadoId":{certificate_id}',
-            f'"desafio":"{desafio}"',
-            f'"pid":"{self.device.pid}"',
-            f'"executavel":"{self.device.basename}"',
-        ]
+        # json.dumps keeps the original's compact layout (no spaces) and escapes anything
+        # hostile in ``basename``; ensure_ascii=False keeps raw UTF-8 like the f-strings did.
+        payload: dict = {
+            "certificadoId": certificate_id,
+            "desafio": desafio,
+            "pid": str(self.device.pid),
+            "executavel": self.device.basename,
+        }
         if pss is None:
-            return "{" + ",".join(parts) + "}", 1
+            return json.dumps(payload, separators=(",", ":"), ensure_ascii=False), 1
         # The original compares the PSS salt length against C_Sign's ulDataLen -- the
         # raw payload length, not the base64 length.
         padding = PSS_SALT_LEN_MD if pss.salt_len == data_len else PSS
-        parts.append(f'"algoritmoHash":"{pss.algorithm}"')
-        parts.append(f'"tipoPadding":"{padding}"')
-        return "{" + ",".join(parts) + "}", 2
+        payload["algoritmoHash"] = pss.algorithm
+        payload["tipoPadding"] = padding
+        return json.dumps(payload, separators=(",", ":"), ensure_ascii=False), 2
 
     # --- transport -----------------------------------------------------------------
     def _send(self, endpoint: Endpoint, request: bytes) -> Response:
@@ -279,9 +281,15 @@ class SerproIDClient:
             raise BackendError(f"id nao inteiro: {request_id!r}")
 
         if payload.get("notificacaoEnviada", True) is True and self.notify is not None:
-            code = self.notify()
-            if code < 0:
-                self.config.log(f"Problema ao exibir mensagem: {code}")
+            try:
+                code = self.notify()
+            except OSError as exc:
+                # A missing notify-send must not abandon a request the backend already holds:
+                # the push is out, and the poll loop still has to run.
+                self.config.log(f"Problema ao exibir mensagem: {exc}")
+            else:
+                if code < 0:
+                    self.config.log(f"Problema ao exibir mensagem: {code}")
         return request_id
 
     def poll_once(
@@ -341,7 +349,11 @@ class SerproIDClient:
             if status == "ACEITO":
                 if signed is None:
                     raise BackendError("desafioAssinado ausente em ACEITO")
-                return base64.b64decode(signed)
+                try:
+                    return base64.b64decode(signed)
+                except (ValueError, TypeError) as exc:  # binascii.Error is a ValueError
+                    self.config.log(f"desafioAssinado nao e base64: {signed!r}")
+                    raise BackendError("desafioAssinado invalido") from exc
             if status == "AGUARDANDO":
                 if attempts != self.max_polls:
                     remaining = self.poll_interval - (time.monotonic() - last)
