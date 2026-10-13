@@ -255,7 +255,7 @@ def _configure_firefox(home: str, lib: str, log: LogFn, details: dict) -> bool |
             # not ours to rewrite.
             already.append(profile)
             continue
-        if index >= 0:
+        if index >= 0 and registered is not None:
             # Registered under our name, but pointing at some other module -- the official
             # one, typically, or a build of ours from a different path. Rewrite that line.
             lines = text.splitlines(keepends=True)
@@ -267,6 +267,20 @@ def _configure_firefox(home: str, lib: str, log: LogFn, details: dict) -> bool |
                 failed.append(profile)
                 continue
             log(f"perfil {profile}: biblioteca trocada de {registered!r} para {lib!r}")
+            updated.append(profile)
+            continue
+        if index >= 0:
+            # A name=SerproID with no library= line above it (hand-edited file). ``index``
+            # points at the name line: insert ours in front instead of overwriting the name.
+            lines = text.splitlines(keepends=True)
+            lines.insert(index, f"library={lib}{LS}")
+            try:
+                _write(path, "".join(lines))
+            except OSError as exc:
+                log(f"error: {path}: {exc}")
+                failed.append(profile)
+                continue
+            log(f"perfil {profile}: biblioteca inserida antes de name={name!r}")
             updated.append(profile)
             continue
         # The original appends blindly; a missing separator would merge our block into the
@@ -408,7 +422,9 @@ def _remove_chrome(home: str, runner: Runner, log: LogFn, details: dict) -> bool
 
     dbdir = _dbdir(nssdb)
     listing = _output(_run(runner, ["modutil", "-list", "-dbdir", dbdir], log))
-    if MODULE_NAME not in listing and LEGACY_MODULE_NAME not in listing:
+    # NeoID is a different module and is never ours to delete: a database holding only
+    # that one counts as absent, or the delete below fails and `desinstalar` errors out.
+    if MODULE_NAME not in listing:
         details["chrome"] = "absent"
         return True
 

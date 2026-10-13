@@ -100,7 +100,12 @@ def exchange(
     log=None,
 ) -> Response:
     """Send one request over a fresh TLS connection and return the parsed reply."""
-    context = build_context(extra_ca=extra_ca, log=log)
+    try:
+        context = build_context(extra_ca=extra_ca, log=log)
+    except (OSError, ssl.SSLError) as exc:
+        # A missing or unreadable CA file is a transport failure, not a raw leak out of
+        # the SerproIDError contract.
+        raise TransportError(f"trust store: {exc}") from exc
     try:
         with socket.create_connection((host, int(port)), timeout=timeout) as raw:
             try:

@@ -243,3 +243,34 @@ def test_module_registration_detection(tmp_path, text, expected):
 
 def test_missing_pkcs11_file_is_not_registered(tmp_path):
     assert cli._pkcs11_has_module(str(tmp_path / "ausente.txt"), "/tmp/x.so") is False
+
+
+# --- association polling --------------------------------------------------------------
+
+
+def test_await_association_survives_the_not_authorized_answer(tmp_path, capsys, monkeypatch):
+    """``MAQ-NAO-AUT`` is the state right after registration: keep going, do not crash."""
+    from nuvem_p11.errors import BackendError
+
+    _, session = parse("--home", str(tmp_path), "associar")
+    monkeypatch.setattr(cli.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda *a, **k: "")
+    answers = [BackendError("MAQ-NAO-AUT"), [{"id": 1, "certificadoB64": "AAAA"}]]
+
+    def list_certificates():
+        item = answers.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    session.client.list_certificates = list_certificates
+    assert cli._await_association(session, session.args) == [{"id": 1, "certificadoB64": "AAAA"}]
+    assert not answers
+
+
+def test_await_association_does_not_crash_when_never_authorized(tmp_path, capsys):
+    from nuvem_p11.errors import BackendError
+
+    _, session = parse("--home", str(tmp_path), "associar")
+    session.client.list_certificates = lambda: (_ for _ in ()).throw(BackendError("MAQ-NAO-AUT"))
+    assert cli._await_association(session, session.args) is None

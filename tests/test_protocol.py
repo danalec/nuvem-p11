@@ -292,6 +292,22 @@ def test_notification_fires_only_when_requested(client):
     assert calls == []
 
 
+def test_a_missing_notifier_does_not_abandon_the_pending_request(client):
+    """notify-send is optional; its absence must not fail a sign that is already in flight."""
+    instance, _ = client(
+        [
+            json_response({"id": 1, "notificacaoEnviada": True}),
+            json_response({"status": "ACEITO", "desafioAssinado": "AA=="}),
+        ]
+    )
+
+    def broken_notify():
+        raise FileNotFoundError("notify-send")
+
+    instance.notify = broken_notify
+    assert instance.sign(1, b"p") == b"\x00"
+
+
 # --- configuration ----------------------------------------------------------------------
 
 

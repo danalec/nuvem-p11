@@ -24,6 +24,8 @@ def decode_blob(text: str) -> bytes:
     rest to a decoder that skips anything outside the alphabet. ``str.split``-free for the
     same reason: we want the identical tolerance, not a stricter parser.
     """
+    if not isinstance(text, str):
+        raise TypeError(f"certificadoB64 nao e texto: {type(text).__name__}")
     cleaned = (
         text.replace("-----BEGIN CERTIFICATE-----", "")
         .replace("-----BEGIN PKCS7-----", "")
@@ -55,15 +57,16 @@ class IssuedCertificate:
         The original sorts the chain by ``notBefore`` and installs all but the last entry.
         That only happens to be right because the leaf is normally the newest certificate
         in the blob; here the leaf is identified by identity, and only an unmatched chain
-        falls back to the original's rule.
+        falls back to the original's rule (drop the newest, i.e. the last after sorting).
         """
         chain = [cert for cert in self.chain if cert != self.der]
-        if len(chain) == len(self.chain):
-            chain = list(self.chain)[:-1] if self.chain else []
+        unmatched = len(chain) == len(self.chain)
         try:
             chain.sort(key=lambda cert: validity(cert)[0])
         except DerError:
             pass
+        if unmatched and chain:
+            chain = chain[:-1]
         return tuple(chain)
 
 
@@ -170,6 +173,7 @@ def install(
     config.log("Instalando certificados do usuário")
     written = install_user_certificates(config, certificates)
     result.certificates_dir = config.certificates_dir
+    written_set = set(written)
     for certificate in certificates:
         for cert in certificate.intermediates():
             try:
@@ -184,8 +188,7 @@ def install(
                     os.unlink(path)
                 except OSError:
                     pass
-        result.installed.append(certificate.label)
+        if config.certificate_path(certificate.certificate_id) in written_set:
+            result.installed.append(certificate.label)
     config.log("Fim da instalação de certificados")
-    if not written:
-        result.installed = []
     return result

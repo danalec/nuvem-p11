@@ -14,7 +14,13 @@ import os
 import pytest
 
 from nuvem_p11.config import Config
-from nuvem_p11.p11.der import certificates_from_pkcs7, subject_name, validity
+from nuvem_p11.p11.der import (
+    DerError,
+    certificates_from_pkcs7,
+    parse_certificate,
+    subject_name,
+    validity,
+)
 from nuvem_p11.setup import (
     IssuedCertificate,
     decode_blob,
@@ -89,6 +95,38 @@ def test_parse_certificates_skips_entries_it_cannot_use():
     assert [item.certificate_id for item in issued] == [7]
 
 
+def test_parse_certificates_skips_a_null_certificate_field():
+    """``certificadoB64: null`` is a skip, not an AttributeError that aborts the batch."""
+    payload = [
+        {"id": 1, "certificadoB64": None},
+        {"id": 2, "certificadoB64": base64.b64encode(fixture(OTHER)).decode()},
+    ]
+    issued = parse_certificates(payload)
+    assert [item.certificate_id for item in issued] == [2]
+
+
+def _tlv(tag: int, content: bytes) -> bytes:
+    return bytes([tag, len(content)]) + content
+
+
+def _seq(*items: bytes) -> bytes:
+    return _tlv(0x30, b"".join(items))
+
+
+def test_a_truncated_certificate_with_a_version_raises_der_error():
+    """A short tbsCertificate with [0] version needs one more field; that is DerError, not IndexError."""
+    tbs = _seq(
+        _tlv(0xA0, b"\x02\x01\x02"),  # version [0] EXPLICIT
+        _tlv(0x02, b"\x01"),  # serialNumber
+        _seq(b""),  # signature
+        _seq(b""),  # issuer
+        _seq(b""),  # validity
+        _seq(b""),  # subject -- subjectPublicKeyInfo is missing
+    )
+    with pytest.raises(DerError):
+        parse_certificate(_seq(tbs))
+
+
 def test_a_broken_chain_does_not_lose_the_certificate():
     payload = [
         {
@@ -128,6 +166,15 @@ def test_intermediates_fall_back_to_the_original_rule_without_the_leaf():
     intermediates = issued.intermediates()
     newest = max((fixture(ROOT), fixture(INTERMEDIATE)), key=lambda cert: validity(cert)[0])
     assert newest not in intermediates
+
+
+def test_the_fallback_drops_the_newest_not_the_last_in_arrival_order():
+    """Same rule, but with the chain delivered newest-first: sort first, then drop."""
+    issued = IssuedCertificate(1, b"", (fixture(INTERMEDIATE), fixture(ROOT)))
+    intermediates = issued.intermediates()
+    newest = max((fixture(ROOT), fixture(INTERMEDIATE)), key=lambda cert: validity(cert)[0])
+    assert newest not in intermediates
+    assert set(intermediates) | {newest} == {fixture(ROOT), fixture(INTERMEDIATE)}
 
 
 def test_the_label_is_the_subject_in_rfc2253_order():

@@ -21,7 +21,7 @@ from datetime import datetime
 
 from . import browser, qr
 from . import setup as installer
-from .client import APP_OS, APP_VERSION, SerproIDClient
+from .client import APP_OS, SerproIDClient
 from .config import (
     AMBIENTE_DEV,
     AMBIENTE_HOMOLOG,
@@ -291,6 +291,7 @@ def _await_association(session: Session, args: argparse.Namespace):
         except BackendError as error:
             if str(error) == "MAQ-NAO-AUT":
                 print(MSG_NOT_AUTHORIZED)
+                payload = None  # keep polling; `payload` must stay bound for the check below
             elif str(error) == "VERSAO_APP_INCOMPATIVEL":
                 print(MSG_OUTDATED)
                 return None
@@ -302,7 +303,9 @@ def _await_association(session: Session, args: argparse.Namespace):
             return None
         if payload:
             return payload
-        print(MSG_NO_CERTS)
+        if payload is not None:
+            # A successful but empty answer. `None` means we already explained why (not authorized).
+            print(MSG_NO_CERTS)
         if not interactive:
             print("(entrada não interativa: encerrando)")
             return None
